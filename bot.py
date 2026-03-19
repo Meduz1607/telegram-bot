@@ -1,13 +1,14 @@
-import json
 import os
-import matplotlib.pyplot as plt
+import json
 import asyncio
 import time
 import pytz
 from datetime import datetime
+import matplotlib.pyplot as plt
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CallbackQueryHandler, CommandHandler
 
+# ================== SETTINGS ==================
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = "@bymeduz"
 CHANNEL_LINK = "https://t.me/bymeduz"
@@ -113,7 +114,7 @@ async def show_stats(update: Update):
     user_id = update.effective_user.id
     data = load_data(user_id)
     trades = [t for t in data.get("trades", []) if isinstance(t, dict) and "result" in t and "pnl" in t]
-total = len(trades)
+    total = len(trades)
     wins = len([t for t in trades if t.get("result") == "win"])
     losses = len([t for t in trades if t.get("result") == "lose"])
     pnl = sum([t.get("pnl", 0) for t in trades])
@@ -131,7 +132,7 @@ total = len(trades)
     )
     await update.message.reply_text(text, reply_markup=main_menu)
 
-# ================== STATISTIKA TOZALASH ==================
+# ================== RESET STAT ==================
 async def reset_stats(update: Update, user_id):
     data = load_data(user_id)
     data["trades"] = []
@@ -139,34 +140,7 @@ async def reset_stats(update: Update, user_id):
     save_data(data, user_id)
     await update.message.reply_text("✅ Statistika tozalandi!", reply_markup=main_menu)
 
-# ================== GRAPH ==================
-async def show_graph(update: Update):
-    user_id = update.effective_user.id
-    data = load_data(user_id)
-    trades = [t for t in data.get("trades", []) if isinstance(t, dict) and "pnl" in t]
-    if not trades:
-        await update.message.reply_text("Hali trade yo‘q!")
-        return
-
-    equity = []
-    total = data.get("current_balance", 0)
-    for t in trades:
-        total += t["pnl"]
-        equity.append(total)
-
-    plt.figure(figsize=(8,4))
-    plt.plot(equity, marker='o', color='green')
-    plt.title("Equity Curve")
-    plt.xlabel("Trade #")
-    plt.ylabel("Balans ($)")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("equity.png")
-    plt.close()
-
-    await update.message.reply_photo(open("equity.png", "rb"))
-
-# ================== TRADE LOGIC ==================
+# ================== TRADE MENU ==================
 async def trade_menu(update: Update):
     user_id = update.effective_user.id
     data = load_data(user_id)
@@ -182,7 +156,7 @@ async def trade_menu(update: Update):
     )
     await update.message.reply_text("Trade natijasi qanday?", reply_markup=keyboard)
 
-# ================== CALLBACK ==================
+# ================== CALLBACK HANDLER ==================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -208,6 +182,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     data = load_data(user_id)
 
+    # --- Bosh menu ---
     if text == "🔙 Orqaga":
         data["state"] = None
         save_data(data, user_id)
@@ -221,7 +196,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "🗑 Statistika tozalash":
         await reset_stats(update, user_id)
         return
-if text == "⚙️ Settings":
+
+    if text == "⚙️ Settings":
         keyboard = ReplyKeyboardMarkup(
             [
                 ["💰 Balansni o‘zgartirish"],
@@ -239,22 +215,24 @@ if text == "⚙️ Settings":
         await update.message.reply_text(text_set, reply_markup=keyboard)
         return
 
+    # Balans va risk update
     if text == "💰 Balansni o‘zgartirish":
         data["state"] = "set_static_balance"
         save_data(data, user_id)
         await update.message.reply_text("Yangi static balansni kiriting ($):")
         return
-
     if text == "⚠️ Riskni o‘zgartirish":
         data["state"] = "set_risk"
         save_data(data, user_id)
         await update.message.reply_text("Yangi risk miqdorini kiriting ($):")
         return
 
+    # Trade qo‘shish
     if text == "➕ Trade qo‘shish":
         await trade_menu(update)
         return
 
+    # Trade natijasi
     if text in ["✅ Win", "❌ Lose"]:
         data["temp"]["result"] = "win" if text == "✅ Win" else "lose"
         data["state"] = "await_pnl"
@@ -262,6 +240,7 @@ if text == "⚙️ Settings":
         await update.message.reply_text("Qancha + yoki - bo‘ldi? (masalan: 25 yoki 10)")
         return
 
+    # Son kiritish bilan state handling
     if data["state"] == "set_static_balance":
         try:
             bal = float(text)
@@ -288,28 +267,19 @@ if text == "⚙️ Settings":
         try:
             pnl = float(text)
             result = data["temp"].get("result", "win")
-
             if result == "lose":
                 pnl = -abs(pnl)
-
-            data["trades"].append({
-                "result": result,
-                "pnl": pnl
-            })
-
+            data["trades"].append({"result": result, "pnl": pnl})
             data["current_balance"] += pnl
             data["state"] = None
             data["temp"] = {}
             save_data(data, user_id)
-
-            await update.message.reply_text(
-                f"📌 Trade saqlandi!\nPnL: {pnl}$",
-                reply_markup=main_menu
-            )
+            await update.message.reply_text(f"📌 Trade saqlandi!\nPnL: {pnl}$", reply_markup=main_menu)
         except:
             await update.message.reply_text("❌ Iltimos son kiriting (masalan: 10 yoki 25)")
         return
 
+    # Hisoblash
     if text == "🧮 Hisoblash":
         data["state"] = "await_stop_percent"
         save_data(data, user_id)
@@ -323,20 +293,18 @@ if text == "⚙️ Settings":
             data["state"] = None
             save_data(data, user_id)
             await update.message.reply_text(
-                f"📉 Stop: {stop_percent}%\n"
-                f"⚠️ Risk: {data.get('risk',0)}$\n"
-                f"🎯 Tavsiya Leverage: {lev}x",
+                f"📉 Stop: {stop_percent}%\n⚠️ Risk: {data.get('risk',0)}$\n🎯 Tavsiya Leverage: {lev}x",
                 reply_markup=main_menu
             )
         except:
             await update.message.reply_text("Noto‘g‘ri son. Misol: 0.5 yoki 1.2")
         return
 
-# ================== 24/7 PURGE + AUTO RESTART ==================
+# ================== PURGE NOTIFIER ==================
 async def purge_notifier(application):
     ny_tz = pytz.timezone("America/New_York")
     notify_hours = [1, 3, 5, 6, 8, 9, 11]
-while True:
+    while True:
         try:
             now = datetime.now(ny_tz)
             if now.hour in notify_hours and now.minute == 0:
@@ -344,10 +312,7 @@ while True:
                     if file.startswith("user_") and file.endswith(".json"):
                         try:
                             user_id = int(file.split("_")[1].split(".")[0])
-                            await application.bot.send_message(
-                                chat_id=user_id,
-                                text="⏰ NY Purge vaqti keldi!"
-                            )
+                            await application.bot.send_message(chat_id=user_id, text="⏰ NY Purge vaqti keldi!")
                         except:
                             pass
                 await asyncio.sleep(60)
@@ -356,6 +321,7 @@ while True:
         except:
             await asyncio.sleep(30)
 
+# ================== RUN BOT ==================
 def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -365,19 +331,18 @@ def run_bot():
     app.post_init = post_init
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("statgraf", show_graph))
+    app.add_handler(CommandHandler("statgraf", show_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot ishga tushdi... 24/7 FREE MODE")
     app.run_polling(drop_pending_updates=True)
 
-# ===== AUTO RESTART LOOP (FREE HOSTING UCHUN) =====
 if __name__ == "__main__":
     while True:
         try:
             run_bot()
         except Exception as e:
             print(f"Xatolik: {e}")
-            print("Bot 5 soniyadan keyin avtomatik qayta ishga tushadi...")
+            print("Bot 5 soniyadan keyin qayta ishga tushadi...")
             time.sleep(5)
