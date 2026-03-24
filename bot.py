@@ -76,21 +76,76 @@ Lose: {total-wins}
 
 # ================= GRAPH =================
 async def graph(update):
-    d=load(update.effective_user.id)
-    t=d["trades"]
+    d = load(update.effective_user.id)
+    trades = d["trades"]
 
-    if not t:
+    if not trades:
         await update.message.reply_text("❗ Trade yo‘q")
         return
 
-    equity=[]
-    bal=0
-    for x in t:
-        bal+=x["pnl"]
-        equity.append(bal)
+    equity = []
+    balance = 0
 
-    plt.figure()
-    plt.plot(equity)
+    for t in trades:
+        balance += t["pnl"]
+        equity.append(balance)
+
+    # ===== STAT =====
+    total = len(trades)
+    wins = len([t for t in trades if t["result"] == "win"])
+    losses = total - wins
+    pnl = sum([t["pnl"] for t in trades])
+    winrate = (wins / total * 100) if total > 0 else 0
+
+    biggest_win = max([t["pnl"] for t in trades])
+    biggest_loss = min([t["pnl"] for t in trades])
+
+    # ===== MAX DRAWDOWN =====
+    peak = equity[0]
+    max_dd = 0
+
+    for x in equity:
+        if x > peak:
+            peak = x
+        dd = peak - x
+        if dd > max_dd:
+            max_dd = dd
+
+    # ===== GRAPH =====
+    plt.figure(figsize=(11,5))
+
+    # Line
+    plt.plot(equity, linewidth=2)
+
+    # Points
+    for i, t in enumerate(trades):
+        color = "green" if t["pnl"] > 0 else "red"
+        plt.scatter(i, equity[i], color=color)
+
+    # Zero line
+    plt.axhline(0, linestyle="--")
+
+    # Title
+    plt.title(
+        f"📈 Equity Curve | PnL: {pnl}$ | Winrate: {winrate:.1f}%"
+    )
+
+    # INFO BOX
+    textstr = (
+        f"Trades: {total}\n"
+        f"Win: {wins} | Lose: {losses}\n"
+        f"Max Win: {biggest_win}$\n"
+        f"Max Loss: {biggest_loss}$\n"
+        f"Max Drawdown: {max_dd}$"
+    )
+
+    plt.gcf().text(0.02, 0.5, textstr, fontsize=10)
+
+    plt.xlabel("Trade #")
+    plt.ylabel("Balance ($)")
+    plt.grid(True)
+
+    plt.tight_layout()
     plt.savefig("graph.png")
     plt.close()
 
