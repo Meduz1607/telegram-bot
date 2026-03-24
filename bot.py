@@ -1,6 +1,5 @@
 import os
 import json
-import asyncio
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes, CommandHandler
 
@@ -54,6 +53,8 @@ async def show_stats(update: Update):
 📊 STATISTIKA
 
 💰 Balans: {data['balance']}$
+⚠️ Risk: {data['risk']}$
+
 📈 PnL: {pnl}$
 
 Trades: {total}
@@ -110,9 +111,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # SETTINGS
     if text == "⚙️ Settings":
-        data["state"] = "set_balance"
+        data["state"] = "choose_setting"
         save_data(data, user_id)
-        await update.message.reply_text("Yangi balans yoz:")
+        await update.message.reply_text("Balans yoki Risk yoz:")
+        return
+
+    if data["state"] == "choose_setting":
+        if "balans" in text.lower():
+            data["state"] = "set_balance"
+            await update.message.reply_text("Yangi balans:")
+        elif "risk" in text.lower():
+            data["state"] = "set_risk"
+            await update.message.reply_text("Yangi risk:")
+        save_data(data, user_id)
         return
 
     if data["state"] == "set_balance":
@@ -120,6 +131,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["state"] = None
         save_data(data, user_id)
         await update.message.reply_text("Balans yangilandi ✅", reply_markup=main_menu)
+        return
+
+    if data["state"] == "set_risk":
+        data["risk"] = float(text)
+        data["state"] = None
+        save_data(data, user_id)
+        await update.message.reply_text("Risk yangilandi ✅", reply_markup=main_menu)
         return
 
     # HISOBLASH
@@ -135,7 +153,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["state"] = None
         save_data(data, user_id)
 
-        await update.message.reply_text(f"Leverage: {lev}x", reply_markup=main_menu)
+        await update.message.reply_text(
+            f"📉 Stop: {stop}%\n⚠️ Risk: {data['risk']}$\n🎯 Leverage: {lev}x",
+            reply_markup=main_menu
+        )
         return
 
 # ================= RUN =================
