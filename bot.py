@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# ================= MENU =================
+# ================= MENULAR =================
 main_menu = ReplyKeyboardMarkup(
     [
         ["📊 Statistika", "📈 Grafik"],
@@ -34,17 +34,17 @@ trade_menu = ReplyKeyboardMarkup(
 )
 
 # ================= DATA =================
-def get_file(user_id):
+def file(user_id):
     return f"user_{user_id}.json"
 
 def load(user_id):
-    if not os.path.exists(get_file(user_id)):
+    if not os.path.exists(file(user_id)):
         return {"balance":100,"risk":10,"trades":[],"state":None,"temp":{}}
-    with open(get_file(user_id)) as f:
+    with open(file(user_id)) as f:
         return json.load(f)
 
 def save(data,user_id):
-    with open(get_file(user_id),"w") as f:
+    with open(file(user_id),"w") as f:
         json.dump(data,f)
 
 # ================= START =================
@@ -80,7 +80,7 @@ async def graph(update):
     t=d["trades"]
 
     if not t:
-        await update.message.reply_text("Trade yo‘q")
+        await update.message.reply_text("❗ Trade yo‘q")
         return
 
     equity=[]
@@ -89,6 +89,7 @@ async def graph(update):
         bal+=x["pnl"]
         equity.append(bal)
 
+    plt.figure()
     plt.plot(equity)
     plt.savefig("graph.png")
     plt.close()
@@ -104,11 +105,12 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
     # BACK
     if text=="🔙 Orqaga":
         d["state"]=None
+        d["temp"]={}
         save(d,uid)
         await update.message.reply_text("Menu",reply_markup=main_menu)
         return
 
-    # STAT
+    # ===== STAT =====
     if text=="📊 Statistika":
         await stats(update)
         return
@@ -123,7 +125,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tozalandi ✅",reply_markup=main_menu)
         return
 
-    # SETTINGS
+    # ===== SETTINGS =====
     if text=="⚙️ Settings":
         d["state"]="settings"
         save(d,uid)
@@ -136,46 +138,67 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
             save(d,uid)
             await update.message.reply_text("Yangi balans:")
             return
+
         if text=="⚠️ Risk":
             d["state"]="set_risk"
             save(d,uid)
             await update.message.reply_text("Yangi risk:")
             return
 
+        await update.message.reply_text("❗ Tugmadan tanlang")
+        return
+
     if d["state"]=="set_balance":
-        d["balance"]=float(text)
+        try:
+            d["balance"]=float(text)
+        except:
+            await update.message.reply_text("❌ Son yoz")
+            return
+
         d["state"]=None
         save(d,uid)
         await update.message.reply_text("Balans yangilandi ✅",reply_markup=main_menu)
         return
 
     if d["state"]=="set_risk":
-        d["risk"]=float(text)
+        try:
+            d["risk"]=float(text)
+        except:
+            await update.message.reply_text("❌ Son yoz")
+            return
+
         d["state"]=None
         save(d,uid)
         await update.message.reply_text("Risk yangilandi ✅",reply_markup=main_menu)
         return
 
-    # TRADE
+    # ===== TRADE =====
     if text=="➕ Trade qo‘shish":
         d["state"]="trade"
+        d["temp"]={}
         save(d,uid)
         await update.message.reply_text("Natija:",reply_markup=trade_menu)
         return
 
     if d["state"]=="trade":
-        if text=="✅ Win":
-            d["temp"]["r"]="win"
-            d["state"]="pnl"
-        elif text=="❌ Lose":
-            d["temp"]["r"]="lose"
-            d["state"]="pnl"
+        if text not in ["✅ Win","❌ Lose"]:
+            await update.message.reply_text("❗ Tugmadan tanlang")
+            return
+
+        d["temp"]["r"]="win" if text=="✅ Win" else "lose"
+        d["state"]="pnl"
         save(d,uid)
-        await update.message.reply_text("PnL yoz:")
+
+        await update.message.reply_text("PnL yoz (faqat son):",reply_markup=main_menu)
         return
 
     if d["state"]=="pnl":
-        pnl=float(text)
+        try:
+            pnl=float(text)
+        except:
+            await update.message.reply_text("❌ Faqat son yoz (masalan: 25)")
+            return
+
         if d["temp"]["r"]=="lose":
             pnl=-abs(pnl)
 
@@ -189,7 +212,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Saqlandi ✅",reply_markup=main_menu)
         return
 
-    # CALC
+    # ===== CALC =====
     if text=="🧮 Hisoblash":
         d["state"]="calc"
         save(d,uid)
@@ -197,14 +220,19 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
         return
 
     if d["state"]=="calc":
-        stop=float(text)
+        try:
+            stop=float(text)
+        except:
+            await update.message.reply_text("❌ Son yoz")
+            return
+
         lev=round((d["risk"]/d["balance"])*100/stop,2)
 
         d["state"]=None
         save(d,uid)
 
         await update.message.reply_text(
-            f"📉 Stop: {stop}%\n⚠️ Risk: {d['risk']}$\n🎯 Lev: {lev}x",
+            f"📉 Stop: {stop}%\n⚠️ Risk: {d['risk']}$\n🎯 Leverage: {lev}x",
             reply_markup=main_menu
         )
         return
@@ -212,6 +240,7 @@ async def handle(update:Update,context:ContextTypes.DEFAULT_TYPE):
 # ================= RUN =================
 def run():
     app=ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start",start))
     app.add_handler(MessageHandler(filters.TEXT,handle))
 
